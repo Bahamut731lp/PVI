@@ -78,7 +78,7 @@ def get_region_values(image, points):
 
         if number_of_pixels > 4000:
             value = 2
-        if number_of_pixels > 5000:
+        if number_of_pixels > 4800:
             value = 5
         if number_of_pixels > 5400:
             value = 10
