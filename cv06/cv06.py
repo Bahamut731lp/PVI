@@ -60,28 +60,6 @@ def granulometric_spectrum(binary_image, min_size=5, max_size=50, step=1, return
     else:
         return spectrum_sizes, estimated_objects, diffs[0]
 
-
-
-def get_region_values(image, points):
-    values = []
-
-    for point in points:
-        region_number = image[point[1]][point[0]]
-        number_of_pixels = len(np.argwhere(image == region_number))
-        
-        value = 1
-
-        if number_of_pixels > 4000:
-            value = 2
-        if number_of_pixels > 4800:
-            value = 5
-        if number_of_pixels > 5400:
-            value = 10
-        
-        values.append((point, number_of_pixels, value))
-
-    return values
-
 def main():
     image_source = Path("cv06/pvi_cv06_mince.jpg")
     image = cv2.imread(image_source.as_posix(), cv2.IMREAD_COLOR_RGB)
@@ -189,7 +167,7 @@ def main():
     plt.subplot(2, 2, 3)
     plt.title("Granulometry")
     spectrum_sizes, estimated_objects, heatmap, diffs = granulometric_spectrum(
-        uncolored_regions, min_size=40, max_size=80, step=1, return_heatmap=True
+        uncolored_regions, min_size=40, max_size=65, step=1, return_heatmap=True
     )
 
     estimated_objects[estimated_objects < 0.9] = 0
@@ -205,7 +183,6 @@ def main():
     plt.colorbar()
 
     plt.subplot(2, 2, 4)
-    print(spectrum_sizes, diffs)
     plt.plot(spectrum_sizes, diffs)
     
     plt.show()
