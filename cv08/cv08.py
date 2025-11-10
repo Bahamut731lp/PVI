@@ -10,8 +10,6 @@ from matplotlib import pyplot as plt
 
 SPZ_WINDOW_GRID = (3, 3)
 SUNFLOWER_WINDOW_GRID = (5, 5)
-SIGMA = 8
-ENTROPY_THRESHOLD = 1.5
 
 def order_points(pts):
     # seřadí body: top-left, top-right, bottom-right, bottom-left
@@ -29,32 +27,34 @@ def order_points(pts):
 
 def calc_hue_hist(region):
     # Převod do HSV
-    hsv = cv2.cvtColor(region, cv2.COLOR_RGB2HSV)
-    hue = hsv[:, :, 0]
+    hsl = cv2.cvtColor(region, cv2.COLOR_RGB2HLS)
+    hue = hsl[:, :, 0]
 
     hist = cv2.calcHist([hue], [0], None, [180], [0, 180])
     hist = hist.flatten()
     hist = hist + 0.001  # malé číslo proti logaritmování nul
-    hist /= hist.sum()  # normalizace na pravděpodobnost
+    hist /= hist.max()
     return hist
 
-def detect_blobs_log(image_gray, sigma, threshold):
-    # 1. Rozostření Gaussovým filtrem
-    blurred = cv2.GaussianBlur(image_gray, (3, 3), sigma)
-    
-    # 2. Aplikace Laplaciána
-    laplacian = cv2.Laplacian(blurred, cv2.CV_64F)
-    
-    # 3. Normalizace hodnot
-    laplacian_abs = np.abs(laplacian)
-    laplacian_norm = laplacian_abs / laplacian_abs.max()
-    
-    # 4. Prahování pro detekci hran
-    _, binary = cv2.threshold(laplacian_norm, threshold, 1, cv2.THRESH_BINARY)
-    
-    # Převod na uint8 (0/255)
-    binary_uint8 = (binary * 255).astype(np.uint8)
-    return binary_uint8
+def iou(boxA, boxB):
+    # box format: (x1, y1, x2, y2)
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+
+    interW = max(0, xB - xA)
+    interH = max(0, yB - yA)
+    interArea = interW * interH
+
+    areaA = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    areaB = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+
+    union = areaA + areaB - interArea
+    if union == 0:
+        return 0
+
+    return interArea / union
 
 def read_bounding_box_data(path: Path):
     boxes = []
@@ -78,12 +78,12 @@ def render_image_grayscale(image, label, position):
     plt.imshow(image, cmap="gray")
     plt.colorbar()
 
-def render_image_with_bounding_box(image, bounding_boxes, label, position):
+def render_image_with_bounding_box(image, bounding_boxes, label, position, color=(255,255,255)):
     copy = image.copy()
 
     for box in bounding_boxes:
         x1, y1, x2, y2 = box
-        cv2.rectangle(copy, (x1, y1), (x2, y2), (255, 255, 255), 2)
+        cv2.rectangle(copy, (x1, y1), (x2, y2), color, 2)
 
     plt.subplot(*SUNFLOWER_WINDOW_GRID, position)
     plt.title(label)
@@ -210,7 +210,7 @@ def main():
     plt.title("Original")
     plt.imshow(image)
 
-    hue = calc_hue_hist(image)
+    hue = calc_hue_hist(image.copy())
     plt.subplot(*SUNFLOWER_WINDOW_GRID, 6)
     plt.title("Histogram odstínu")
     plt.plot(hue)
@@ -218,45 +218,77 @@ def main():
     for index, sample in enumerate(samples):
         render_image(sample, f"Vzor {index + 1}", 2 + index)
 
-    for index, image in enumerate(samples):
-        render_image_with_bounding_box(image, bounding_boxes[index], f"Anotace {index + 1}", 7 + index)
+    for index, sample in enumerate(samples):
+        render_image_with_bounding_box(sample, bounding_boxes[index], f"Anotace {index + 1}", 7 + index)
 
-    logs = []
-    for index, image in enumerate(samples):
-        result = image.copy()
-        grayscale = 255 - cv2.cvtColor(image, cv2.COLOR_RGB2HLS)[:,:,0]
-        grayscale = cv2.equalizeHist(grayscale)
-        kernel = cv2.getGaussianKernel(20, 0)
-        grayscale = cv2.sepFilter2D(grayscale, -1 , kernel, kernel)
-        grayscale = cv2.morphologyEx(grayscale, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=10)
-        _, grayscale = cv2.threshold(grayscale, 240, 255, 0)
-
-
-        render_image(grayscale, f"Input {index + 1}", 12 + index)
+    for index, sample in enumerate(samples):
+        result = sample.copy()
 
         regions = []
         filtered = []
-        h, w = image.shape[:2]
-        blobs_log = skimage.feature.blob_log(grayscale, min_sigma=10, max_sigma=30, threshold=0.2)
+        h, w = sample.shape[:2]
+        grayscale = 255 - cv2.cvtColor(sample, cv2.COLOR_RGB2GRAY)
+        blobs_log = skimage.feature.blob_log(grayscale, min_sigma=10, max_sigma=100, num_sigma=20, threshold=0.15)
 
         for y, x, r in blobs_log:
             cv2.circle(result, (int(x), int(y)), int(r), (128, 0, 255), 5)
-            x1 = int(max(x - 4 * r, 0))
-            y1 = int(max(y - 4 * r, 0))
-            x2 = int(min(x + 4 * r, w))
-            y2 = int(min(y + 4 * r, h))
+            x1 = int(max(x - 2*r, 0))
+            y1 = int(max(y - 2*r, 0))
+            x2 = int(min(x + 2*r, w))
+            y2 = int(min(y + 2*r, h))
     
-            regions.append((image[y1:y2, x1:x2], (x1, y1, x2, y2)))
+            regions.append((sample[y1:y2, x1:x2], (x1, y1, x2, y2)))
 
         render_image(result, f"LoG {index + 1}", 17 + index)
         
         for region, bbox in regions:
-            histogram = calc_hue_hist(region)
-            entropy = scipy.stats.entropy(histogram, hue)
-            if entropy < ENTROPY_THRESHOLD:
+            image_hue = hue
+            region_hue = calc_hue_hist(region)
+            kl_divergence = scipy.stats.entropy(image_hue, region_hue)
+
+            # Filtrace podle prahu divergence
+            if kl_divergence < 1.48:
                 filtered.append(bbox)
 
-        render_image_with_bounding_box(image, filtered, "Nalezeno", 22 + index)
+        render_image_with_bounding_box(sample, filtered, "Nalezeno", 22 + index, (255, 0, 0))
+
+        # Ground truth and predicted boxes
+        gt_boxes = bounding_boxes[index]
+        pred_boxes = filtered
+
+        IOU_THRESHOLD = 0.5
+
+        matched_gt = set()
+        TP = 0
+        FP = 0
+
+        for pred in pred_boxes:
+            best_iou = 0
+            best_gt = None
+
+            for i, gt in enumerate(gt_boxes):
+                current_iou = iou(pred, gt)
+                if current_iou > best_iou:
+                    best_iou = current_iou
+                    best_gt = i
+
+            if best_iou >= IOU_THRESHOLD and best_gt not in matched_gt:
+                TP += 1
+                matched_gt.add(best_gt)
+            else:
+                FP += 1
+
+        FN = len(gt_boxes) - TP
+
+        accuracy = TP / (TP + FP + FN) if (TP + FP + FN) else 0
+        precision = TP / (TP + FP) if (TP + FP) else 0
+        recall = TP / (TP + FN) if (TP + FN) else 0
+
+        print(f"Sample {index+1}:")
+        print(f"  TP = {TP}, FP = {FP}, FN = {FN}")
+        print(f"  Precision = {precision:.3f}")
+        print(f"  Recall    = {recall:.3f}")
+        print(f"  Accuracy  = {accuracy:.3f}")
 
     plt.show()
 
