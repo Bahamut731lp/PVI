@@ -9,7 +9,7 @@ from pathlib import Path
 from matplotlib import pyplot as plt
 
 SPZ_WINDOW_GRID = (3, 3)
-SUNFLOWER_WINDOW_GRID = (5, 5)
+SUNFLOWER_WINDOW_GRID = (4, 5)
 
 def order_points(pts):
     # seřadí body: top-left, top-right, bottom-right, bottom-left
@@ -250,7 +250,7 @@ def main():
             if kl_divergence < 1.48:
                 filtered.append(bbox)
 
-        render_image_with_bounding_box(sample, filtered, "Nalezeno", 22 + index, (255, 0, 0))
+        render_image_with_bounding_box(sample, filtered, "Nalezeno", 12 + index, (255, 0, 0))
 
         # Ground truth and predicted boxes
         gt_boxes = bounding_boxes[index]
